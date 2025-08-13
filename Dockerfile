@@ -1,5 +1,5 @@
-# Gunakan versi PHP yang sesuai dengan proyek Anda (misal: 8.2 atau 8.3)
-FROM php:8.2-fpm-alpine
+# Gunakan PHP 8.3 untuk kompatibilitas penuh
+FROM php:8.3-fpm-alpine
 
 # Set direktori kerja
 WORKDIR /var/www/html
@@ -13,7 +13,8 @@ RUN apk add --no-cache \
     freetype-dev \
     libjpeg-turbo-dev \
     libpng-dev \
-    mysql-client
+    mysql-client \
+    git
 
 # Configure dan instal ekstensi PHP
 RUN docker-php-ext-configure intl --enable-intl && \
@@ -32,8 +33,13 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Salin file composer terlebih dahulu untuk caching
 COPY composer.json composer.lock ./
 
-# Instal dependensi tanpa dev packages untuk produksi
-RUN composer install --no-dev --no-interaction --no-scripts --optimize-autoloader
+# Hapus composer.lock dan update dependencies untuk mengatasi konflik versi
+RUN rm -f composer.lock && \
+    composer update --no-dev --no-interaction --optimize-autoloader
+
+# ATAU jika ingin mempertahankan lock file, gunakan ini:
+# RUN composer install --no-dev --no-interaction --no-scripts --optimize-autoloader || \
+#     (rm composer.lock && composer update --no-dev --no-interaction --optimize-autoloader)
 
 # Salin sisa file aplikasi Anda
 COPY . .

@@ -1,29 +1,22 @@
-# Gunakan PHP dengan Apache yang sudah terintegrasi
 FROM php:8.3-apache
 
 # Set direktori kerja
 WORKDIR /var/www/html
 
-# Instal dependencies sistem
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     libicu-dev \
     libzip-dev \
     libonig-dev \
-    libfreetype6-dev \
-    libjpeg62-turbo-dev \
-    libpng-dev \
-    default-mysql-client \
     git \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure dan instal ekstensi PHP
+# Install PHP extensions
 RUN docker-php-ext-configure intl && \
     docker-php-ext-install \
     pdo \
     pdo_mysql \
-    bcmath \
-    sockets \
     intl \
     zip \
     opcache
@@ -31,49 +24,73 @@ RUN docker-php-ext-configure intl && \
 # Enable Apache modules
 RUN a2enmod rewrite
 
-# Instal Composer
+# Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Salin composer files
-COPY composer.json ./
-COPY composer.lock* ./
-
-# Install dependencies
-RUN composer update --no-dev --no-interaction --no-scripts --optimize-autoloader
-
-# Salin aplikasi
+# Copy application
 COPY . .
 
-# Buat direktori yang dibutuhkan
+# Install dependencies
+RUN composer install --no-dev --no-interaction --optimize-autoloader
+
+# Create necessary directories
 RUN mkdir -p storage/logs storage/framework/{cache,sessions,views} bootstrap/cache
 
-# Laravel commands
-RUN php artisan config:clear || true && \
-    php artisan route:clear || true && \
-    php artisan view:clear || true && \
-    php artisan cache:clear || true
-
 # Set permissions
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+RUN chown -R www-data:www-data storage bootstrap/cache
 
-# Konfigurasi Apache untuk Laravel
-RUN echo '<VirtualHost *:8080>\n\
+# Configure Apache
+RUN echo '<VirtualHost *:$PORT>\n\
     DocumentRoot /var/www/html/public\n\
     <Directory /var/www/html/public>\n\
+        Options Indexes FollowSymLinks\n\
         AllowOverride All\n\
         Require all granted\n\
     </Directory>\n\
+    ErrorLog ${APACHE_LOG_DIR}/error.log\n\
+    CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
 </VirtualHost>' > /etc/apache2/sites-available/000-default.conf
 
-# Update Apache ports
-RUN sed -i 's/Listen 80/Listen 8080/' /etc/apache2/ports.conf
+# Startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Set port from environment\n\
+PORT=${PORT:-8080}\n\
+echo "Starting Apache on port $PORT"\n\
+\n\
+# Update Apache configuration\n\
+sed -i "s/Listen 80/Listen $PORT/" /etc/apache2/ports.conf\n\
+sed -i "s/\$PORT/$PORT/g" /etc/apache2/sites-available/000-default.conf\n\
+echo "ServerName localhost" >> /etc/apache2/apache2.conf\n\
+\n\
+# Wait for database to be ready\n\
+echo "Waiting for database connection..."\n\
+php artisan tinker --execute="DB::connection()->getPdo();" || sleep 10\n\
+\n\
+# Run database migrations\n\
+echo "Running database migrations..."\n\
+php artisan migrate --force\n\
+\n\
+# Create sessions table if using database sessions\n\
+php artisan session:table || true\n\
+php artisan migrate --force\n\
+\n\
+# Clear Laravel caches\n\
+php artisan config:clear || true\n\
+php artisan route:clear || true\n\
+php artisan view:clear || true\n\
+php artisan cache:clear || true\n\
+\n\
+# Start Apache\n\
+exec apache2-foreground' > /start.sh && chmod +x /start.sh
 
-# Konfigurasi PHP
-RUN echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/opcache.ini && \
-    echo "opcache.memory_consumption=128" >> /usr/local/etc/php/conf.d/opcache.ini
+# PHP production config
+RUN echo 'opcache.enable=1\n\
+opcache.memory_consumption=128\n\
+opcache.interned_strings_buffer=8\n\
+opcache.max_accelerated_files=4000\n\
+opcache.revalidate_freq=2\n\
+opcache.fast_shutdown=1' > /usr/local/etc/php/conf.d/opcache.ini
 
-# Railway port
-EXPOSE 8080
-
-# Jalankan Apache
-CMD ["apache2-foreground"]
+CMD ["/start.sh"]

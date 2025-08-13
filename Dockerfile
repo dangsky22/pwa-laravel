@@ -33,19 +33,21 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Salin file composer terlebih dahulu untuk caching
 COPY composer.json composer.lock ./
 
-# Hapus composer.lock dan update dependencies untuk mengatasi konflik versi
+# Install dependencies tanpa menjalankan scripts yang membutuhkan Laravel
 RUN rm -f composer.lock && \
-    composer update --no-dev --no-interaction --optimize-autoloader
-
-# ATAU jika ingin mempertahankan lock file, gunakan ini:
-# RUN composer install --no-dev --no-interaction --no-scripts --optimize-autoloader || \
-#     (rm composer.lock && composer update --no-dev --no-interaction --optimize-autoloader)
+    composer update --no-dev --no-interaction --no-scripts --optimize-autoloader
 
 # Salin sisa file aplikasi Anda
 COPY . .
 
-# Jalankan post-install scripts Laravel
-RUN composer run-script post-install-cmd --no-interaction || true
+# Sekarang jalankan scripts setelah semua file tersedia
+RUN composer run-script post-autoload-dump --no-interaction || true
+
+# Generate aplikasi key jika diperlukan
+RUN php artisan config:clear || true && \
+    php artisan route:clear || true && \
+    php artisan view:clear || true && \
+    php artisan cache:clear || true
 
 # Set permission yang benar untuk storage dan cache
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache

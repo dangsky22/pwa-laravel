@@ -1,12 +1,16 @@
 # Gunakan versi PHP yang sesuai dengan proyek Anda (misal: 8.2 atau 8.3)
-# Base image "-alpine" lebih ringan dan direkomendasikan
 FROM php:8.2-fpm-alpine
 
 # Set direktori kerja
 WORKDIR /var/www/html
 
+# -----------------------------------------------------------------
+# [PERUBAHAN DI SINI] Instal paket linux-headers yang dibutuhkan
+RUN apk add --no-cache linux-headers
+# -----------------------------------------------------------------
+
 # Instal ekstensi PHP yang umum dibutuhkan Laravel & Filament
-# Termasuk intl dan zip yang menjadi penyebab error Anda
+# Perintah ini sekarang akan berhasil karena 'linux-headers' sudah terinstal
 RUN docker-php-ext-install pdo pdo_mysql bcmath sockets intl zip
 
 # Instal Composer

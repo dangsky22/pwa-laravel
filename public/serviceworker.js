@@ -1,5 +1,6 @@
 var staticCacheName = "pwa-v" + new Date().getTime();
-var filesToCache = ["/offline", "/css/app.css", "/js/app.js"];
+// Keep cache list minimal and valid to avoid install failures
+var filesToCache = ["/", "/offline"]; // Add built assets here if needed
 
 // Cache on install
 self.addEventListener("install", (event) => {

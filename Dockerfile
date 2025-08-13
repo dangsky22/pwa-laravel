@@ -1,23 +1,24 @@
-# Gunakan PHP 8.3 untuk kompatibilitas penuh
-FROM php:8.3-fpm-alpine
+# Gunakan PHP dengan Apache yang sudah terintegrasi
+FROM php:8.3-apache
 
 # Set direktori kerja
 WORKDIR /var/www/html
 
-# Instal dependencies sistem yang diperlukan termasuk ICU
-RUN apk add --no-cache \
-    linux-headers \
-    icu-dev \
+# Instal dependencies sistem
+RUN apt-get update && apt-get install -y \
+    libicu-dev \
     libzip-dev \
-    oniguruma-dev \
-    freetype-dev \
-    libjpeg-turbo-dev \
+    libonig-dev \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
     libpng-dev \
-    mysql-client \
-    git
+    default-mysql-client \
+    git \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
 
 # Configure dan instal ekstensi PHP
-RUN docker-php-ext-configure intl --enable-intl && \
+RUN docker-php-ext-configure intl && \
     docker-php-ext-install \
     pdo \
     pdo_mysql \
@@ -27,39 +28,52 @@ RUN docker-php-ext-configure intl --enable-intl && \
     zip \
     opcache
 
+# Enable Apache modules
+RUN a2enmod rewrite
+
 # Instal Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Salin file composer terlebih dahulu untuk caching
-COPY composer.json composer.lock ./
+# Salin composer files
+COPY composer.json ./
+COPY composer.lock* ./
 
-# Install dependencies tanpa menjalankan scripts yang membutuhkan Laravel
-RUN rm -f composer.lock && \
-    composer update --no-dev --no-interaction --no-scripts --optimize-autoloader
+# Install dependencies
+RUN composer update --no-dev --no-interaction --no-scripts --optimize-autoloader
 
-# Salin sisa file aplikasi Anda
+# Salin aplikasi
 COPY . .
 
-# Sekarang jalankan scripts setelah semua file tersedia
-RUN composer run-script post-autoload-dump --no-interaction || true
+# Buat direktori yang dibutuhkan
+RUN mkdir -p storage/logs storage/framework/{cache,sessions,views} bootstrap/cache
 
-# Generate aplikasi key jika diperlukan
+# Laravel commands
 RUN php artisan config:clear || true && \
     php artisan route:clear || true && \
     php artisan view:clear || true && \
     php artisan cache:clear || true
 
-# Set permission yang benar untuk storage dan cache
+# Set permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
-# Konfigurasi PHP untuk produksi
+# Konfigurasi Apache untuk Laravel
+RUN echo '<VirtualHost *:8080>\n\
+    DocumentRoot /var/www/html/public\n\
+    <Directory /var/www/html/public>\n\
+        AllowOverride All\n\
+        Require all granted\n\
+    </Directory>\n\
+</VirtualHost>' > /etc/apache2/sites-available/000-default.conf
+
+# Update Apache ports
+RUN sed -i 's/Listen 80/Listen 8080/' /etc/apache2/ports.conf
+
+# Konfigurasi PHP
 RUN echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/opcache.ini && \
-    echo "opcache.memory_consumption=128" >> /usr/local/etc/php/conf.d/opcache.ini && \
-    echo "opcache.interned_strings_buffer=8" >> /usr/local/etc/php/conf.d/opcache.ini && \
-    echo "opcache.max_accelerated_files=4000" >> /usr/local/etc/php/conf.d/opcache.ini
+    echo "opcache.memory_consumption=128" >> /usr/local/etc/php/conf.d/opcache.ini
 
-# Expose port untuk web server
-EXPOSE 9000
+# Railway port
+EXPOSE 8080
 
-# Perintah untuk menjalankan PHP-FPM
-CMD ["php-fpm"]
+# Jalankan Apache
+CMD ["apache2-foreground"]
